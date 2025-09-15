@@ -2,38 +2,6 @@ name: Bogazici-DevSecOps-Pipeline
 
 on:
   push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
-  workflow_dispatch: {}   # İstersen Actions > Run workflow ile manuel tetikleyebil
-
-jobs:
-  build-and-syft:
-    name: Build & SBOM
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # Docker imajını mevcut Dockerfile ile build et
-      - name: Build Docker image
-        run: |
-          docker build -t juice-shop:${{ github.sha }} .
-
-      # Syft ile imajdan SPDX SBOM üret
-      - name: Syft SBOM Scan (image → SPDX)
-        uses: anchore/sbom-action@v0
-        with:
-          image: "juice-shop:${{ github.sha }}"
-          format: "spdx-json"
-          output-file: "sbom.spdx.json"
-          name: Bogazici-DevSecOps-Pipeline
-
-on:
-  push:
     branches: [ master ]
   pull_request:
     branches: [ master ]
@@ -43,12 +11,15 @@ jobs:
   build-and-scan:
     runs-on: ubuntu-latest
     steps:
+      # Repo'yu çek
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Docker imajını build et
       - name: Build Docker image
         run: docker build -t juice-shop:${{ github.sha }} .
 
+      # Syft ile SBOM üret (SPDX formatında)
       - name: Syft SBOM Scan (SPDX)
         uses: anchore/sbom-action@v0
         with:
@@ -56,6 +27,7 @@ jobs:
           format: "spdx-json"
           output-file: "sbom.spdx.json"
 
+      # Grype ile güvenlik açığı taraması
       - name: Grype Vulnerability Scan
         uses: anchore/scan-action@v3
         with:
@@ -64,6 +36,13 @@ jobs:
           output-format: sarif
           output-file: "grype-results.sarif"
 
+      # Gitleaks ile secret taraması
+      - name: Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --source . --no-git -v --report-path=gitleaks-report.json
+
+      # Raporları artifact olarak yükle
       - name: Upload reports
         uses: actions/upload-artifact@v4
         with:
@@ -71,4 +50,4 @@ jobs:
           path: |
             sbom.spdx.json
             grype-results.sarif
-
+            gitleaks-report.json

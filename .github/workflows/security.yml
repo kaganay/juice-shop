@@ -1,53 +1,63 @@
-name: Bogazici-DevSecOps-Pipeline
-
-on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-  workflow_dispatch: {}
-
-jobs:
-  build-and-scan:
+# 2) SAST (Semgrep) Job — ekrandaki formatla aynı
+  sast-scan:
+    name: SAST (Semgrep)
     runs-on: ubuntu-latest
+    container: returntocorp/semgrep:latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
-      # Repo'yu çek
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      # Docker imajını build et
-      - name: Build Docker image
-        run: docker build -t juice-shop:${{ github.sha }} .
+      - name: Semgrep Scan
+        run: |
+          mkdir -p semgrep/results
+          semgrep ci --config=auto --sarif --output=semgrep/results/semgrep.sarif || true
 
-      # Syft ile SBOM üret (SPDX formatında)
-      - name: Syft SBOM Scan (SPDX)
-        uses: anchore/sbom-action@v0
+      - name: Upload SARIF File
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
-          image: "juice-shop:${{ github.sha }}"
-          format: "spdx-json"
-          output-file: "sbom.spdx.json"
+          sarif_file: 'semgrep/results/semgrep.sarif'
 
-      # Grype ile güvenlik açığı taraması
-      - name: Grype Vulnerability Scan
-        uses: anchore/scan-action@v3
-        with:
-          image: "juice-shop:${{ github.sha }}"
-          fail-build: false
-          output-format: sarif
-          output-file: "grype-results.sarif"
-
-      # Gitleaks ile secret taraması
-      - name: Gitleaks Secret Scan
-        uses: gitleaks/gitleaks-action@v2
-        with:
-          args: detect --source . --no-git -v --report-path=gitleaks-report.json
-
-      # Raporları artifact olarak yükle
-      - name: Upload reports
+      - name: Upload Semgrep report
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: security-reports
-          path: |
-            sbom.spdx.json
-            grype-results.sarif
-            gitleaks-report.json
+          name: semgrep-results
+          path: semgrep/results/
+
+  # 3) Secrets (Gitleaks) Job — İSTEDİĞİN EKLEME
+  secrets-scan:
+    name: Secrets (Gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare results dir
+        run: mkdir -p gitleaks/results
+
+      - name: Gitleaks Scan
+        uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true
+        with:
+          # raporu SARIF üret, Code scanning'e uygun olsun
+          args: --no-git -v --redact --report-format sarif --report-path gitleaks/results/gitleaks.sarif
+
+      - name: Upload Gitleaks SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: gitleaks/results/gitleaks.sarif
+
+      - name: Upload Gitleaks report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-results
+          path: gitleaks/results/

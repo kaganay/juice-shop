@@ -1,44 +1,32 @@
-name: Build image and generate SBOM
+name: Bogazici-DevSecOps-Pipeline
 
 on:
   push:
-    branches: [ master ]
-  workflow_dispatch:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch: {}   # İstersen Actions > Run workflow ile manuel tetikleyebil
 
 jobs:
-  build-and-sbom:
+  build-and-syft:
+    name: Build & SBOM
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up QEMU (optional, for multi-arch)
-        uses: docker/setup-qemu-action@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image (load into runner's docker)
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          push: false       # registry'ye göndermiyoruz
-          load: true        # image'ı runner'ın docker daemon'una yüklüyoruz
-          tags: juice-shop:${{ github.sha }}
-
-      - name: Install Syft (Anchore)
+      # Docker imajını mevcut Dockerfile ile build et
+      - name: Build Docker image
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b $HOME/.local/bin
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          docker build -t juice-shop:${{ github.sha }} .
 
-      - name: Generate CycloneDX SBOM from image
-        run: |
-          # image tag ile tarama; çıktı cyclonedx-json formatında
-          syft docker:juice-shop:${{ github.sha }} -o cyclonedx-json > sbom-cyclonedx.json
-
-      - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+      # Syft ile imajdan SPDX SBOM üret
+      - name: Syft SBOM Scan (image → SPDX)
+        uses: anchore/sbom-action@v0
         with:
-          name: sbom
-          path: sbom-cyclonedx.json
+          image: "juice-shop:${{ github.sha }}"
+          format: "spdx-json"
+          output-file: "sbom.spdx.json"

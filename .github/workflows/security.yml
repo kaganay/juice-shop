@@ -30,3 +30,45 @@ jobs:
           image: "juice-shop:${{ github.sha }}"
           format: "spdx-json"
           output-file: "sbom.spdx.json"
+          name: Bogazici-DevSecOps-Pipeline
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch: {}
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t juice-shop:${{ github.sha }} .
+
+      - name: Syft SBOM Scan (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: "juice-shop:${{ github.sha }}"
+          format: "spdx-json"
+          output-file: "sbom.spdx.json"
+
+      - name: Grype Vulnerability Scan
+        uses: anchore/scan-action@v3
+        with:
+          image: "juice-shop:${{ github.sha }}"
+          fail-build: false
+          output-format: sarif
+          output-file: "grype-results.sarif"
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            sbom.spdx.json
+            grype-results.sarif
+
